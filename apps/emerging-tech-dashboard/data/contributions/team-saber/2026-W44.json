@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "kind": "ai-engineer-coach.team-contribution",
+  "generatedAt": "2026-11-05T08:51:04.664Z",
+  "contributorLabel": "team-saber",
+  "period": {},
+  "allowListedWorkspaces": [
+    "ara-suite",
+    "forward-engineering",
+    "TranslationTool"
+  ],
+  "metrics": {
+    "promptQuality": {
+      "score": 73,
+      "patternCount": 6
+    },
+    "premiumShare": {
+      "totalRequests": 1323,
+      "premiumRequests": 1323,
+      "share": 1
+    },
+    "topAntiPatterns": [
+      {
+        "id": "no-slash-commands",
+        "name": "No Slash Commands",
+        "group": "tool-mastery",
+        "severity": "low",
+        "occurrences": 1323,
+        "rate": 1
+      },
+      {
+        "id": "no-custom-instructions",
+        "name": "No Custom Instructions",
+        "group": "tool-mastery",
+        "severity": "medium",
+        "occurrences": 1302,
+        "rate": 0.9841269841269841
+      },
+      {
+        "id": "slow-responses",
+        "name": "Slow Responses",
+        "group": "session-hygiene",
+        "severity": "low",
+        "occurrences": 535,
+        "rate": 0.40438397581254726
+      },
+      {
+        "id": "agentic-no-tools",
+        "name": "Agentic Without Tools",
+        "group": "tool-mastery",
+        "severity": "low",
+        "occurrences": 501,
+        "rate": 0.3786848072562358
+      },
+      {
+        "id": "cache-hit-starvation",
+        "name": "Prompt Cache Starvation",
+        "group": "tool-mastery",
+        "severity": "medium",
+        "occurrences": 326,
+        "rate": 0.24640967498110355
+      },
+      {
+        "id": "repeated-prompts",
+        "name": "Repeated Prompts",
+        "group": "prompt-quality",
+        "severity": "high",
+        "occurrences": 235,
+        "rate": 0.17762660619803478
+      },
+      {
+        "id": "runaway-agent-loops",
+        "name": "Runaway Agent Loops",
+        "group": "session-hygiene",
+        "severity": "high",
+        "occurrences": 206,
+        "rate": 0.15570672713529857
+      },
+      {
+        "id": "premium-waste",
+        "name": "Premium Model Waste",
+        "group": "tool-mastery",
+        "severity": "medium",
+        "occurrences": 57,
+        "rate": 0.04308390022675737
+      },
+      {
+        "id": "broken-flow-state",
+        "name": "Broken Flow State",
+        "group": "session-hygiene",
+        "severity": "high",
+        "occurrences": 53,
+        "rate": 0.0400604686318972
+      },
+      {
+        "id": "reasoning-effort-overuse",
+        "name": "Reasoning Effort Overuse",
+        "group": "tool-mastery",
+        "severity": "medium",
+        "occurrences": 38,
+        "rate": 0.02872260015117158
+      }
+    ],
+    "modelUsageWeek": {
+      "week": "2026-W44",
+      "models": []
+    },
+    "requestsWeek": {
+      "week": "2026-W44",
+      "days": [
+        {
+          "date": "2026-11-02",
+          "requests": 0
+        },
+        {
+          "date": "2026-11-03",
+          "requests": 0
+        },
+        {
+          "date": "2026-11-04",
+          "requests": 0
+        },
+        {
+          "date": "2026-11-05",
+          "requests": 0
+        },
+        {
+          "date": "2026-11-06",
+          "requests": 0
+        },
+        {
+          "date": "2026-11-07",
+          "requests": 0
+        },
+        {
+          "date": "2026-11-08",
+          "requests": 0
+        }
+      ]
+    }
+  }
+}
