@@ -1,8 +1,17 @@
-from fastapi import FastAPI, HTTPException
+import json
+import os
+import tempfile
+import threading
+from datetime import datetime, timedelta
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from pydantic import BaseModel
 from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders
+
+# Orders file that restock orders are persisted to (tests can monkeypatch this)
+ORDERS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'orders.json')
+_orders_lock = threading.Lock()
 
 app = FastAPI(title="Factory Inventory Management System")
 
@@ -80,6 +89,9 @@ class Order(BaseModel):
     actual_delivery: Optional[str] = None
     warehouse: Optional[str] = None
     category: Optional[str] = None
+    # Only set on restock orders created from the Restocking tab
+    order_type: Optional[str] = None
+    lead_time_days: Optional[int] = None
 
 class DemandForecast(BaseModel):
     id: str
@@ -303,6 +315,154 @@ def get_monthly_trends():
     result = list(months.values())
     result.sort(key=lambda x: x['month'])
     return result
+
+# ---------------------------------------------------------------------------
+# Restocking
+# ---------------------------------------------------------------------------
+
+# Days from order to delivery, per product category. Unknown categories use the default.
+LEAD_TIME_DAYS = {
+    "Circuit Boards": 7,
+    "Sensors": 10,
+    "Controllers": 10,
+    "Power Supplies": 12,
+    "Actuators": 14,
+}
+DEFAULT_LEAD_TIME_DAYS = 14
+
+class RestockLine(BaseModel):
+    sku: str
+    quantity: int
+
+class CreateRestockOrderRequest(BaseModel):
+    budget: float
+    items: List[RestockLine]
+
+def lead_time_for(category: str) -> int:
+    return LEAD_TIME_DAYS.get(category, DEFAULT_LEAD_TIME_DAYS)
+
+def restock_candidates() -> list:
+    """Forecast SKUs that need restocking, largest shortfall first.
+
+    shortfall = forecasted_demand - quantity_on_hand. SKUs with no inventory record
+    or no shortfall are excluded. Unit cost comes from inventory (the forecast has none).
+    """
+    inventory_by_sku = {item["sku"]: item for item in inventory_items}
+    candidates = []
+    for forecast in demand_forecasts:
+        item = inventory_by_sku.get(forecast["item_sku"])
+        if item is None:
+            continue
+        shortfall = forecast["forecasted_demand"] - item["quantity_on_hand"]
+        if shortfall <= 0:
+            continue
+        candidates.append({
+            "sku": item["sku"],
+            "name": item["name"],
+            "quantity": shortfall,
+            "unit_cost": item["unit_cost"],
+            "line_total": round(shortfall * item["unit_cost"], 2),
+            "category": item["category"],
+            "warehouse": item["warehouse"],
+        })
+    candidates.sort(key=lambda c: c["quantity"], reverse=True)
+    return candidates
+
+@app.get("/api/restocking/recommendations")
+def get_restocking_recommendations(budget: float = Query(0, ge=0)):
+    """Greedy fill: walk candidates largest-shortfall first and take each one that still fits
+    the remaining budget. Items that don't fit are skipped, so a cheaper later item can still be added."""
+    remaining = budget
+    selected = []
+    for candidate in restock_candidates():
+        if candidate["line_total"] <= remaining:
+            selected.append(candidate)
+            remaining = round(remaining - candidate["line_total"], 2)
+    return {
+        "budget": budget,
+        "total_cost": round(budget - remaining, 2),
+        "remaining": remaining,
+        "items": selected,
+    }
+
+def _save_orders_file(all_orders: list) -> None:
+    """Write orders atomically: temp file in the same directory, then os.replace."""
+    directory = os.path.dirname(ORDERS_FILE)
+    fd, tmp_path = tempfile.mkstemp(dir=directory, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(all_orders, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp_path, ORDERS_FILE)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+
+@app.post("/api/restocking/orders", response_model=Order, status_code=201)
+def place_restocking_order(request: CreateRestockOrderRequest):
+    """Create a restock order. Prices and lead times are recomputed here; the client's
+    numbers are not trusted. The order is appended to orders and written to orders.json."""
+    if not request.items:
+        raise HTTPException(status_code=400, detail="Order has no items")
+
+    inventory_by_sku = {item["sku"]: item for item in inventory_items}
+    seen = set()
+    lines = []
+    total = 0.0
+    lead_days = 0
+    for line in request.items:
+        if line.quantity <= 0:
+            raise HTTPException(status_code=400, detail=f"Quantity for {line.sku} must be positive")
+        if line.sku in seen:
+            raise HTTPException(status_code=400, detail=f"Duplicate SKU {line.sku}")
+        seen.add(line.sku)
+        item = inventory_by_sku.get(line.sku)
+        if item is None:
+            raise HTTPException(status_code=400, detail=f"Unknown SKU {line.sku}")
+        line_total = round(line.quantity * item["unit_cost"], 2)
+        total += line_total
+        # The order arrives when its slowest category arrives
+        lead_days = max(lead_days, lead_time_for(item["category"]))
+        lines.append({
+            "sku": item["sku"],
+            "name": item["name"],
+            "quantity": line.quantity,
+            "unit_price": item["unit_cost"],
+        })
+
+    total = round(total, 2)
+    if total > request.budget:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Order total {total} exceeds budget {request.budget}",
+        )
+
+    with _orders_lock:
+        now = datetime.now().replace(microsecond=0)
+        year = now.year
+        restock_count = sum(1 for o in orders if o.get("order_type") == "restock")
+        next_id = max((int(o["id"]) for o in orders), default=0) + 1
+        categories = {item["category"] for item in (inventory_by_sku[l["sku"]] for l in lines)}
+        warehouses = {inventory_by_sku[l["sku"]]["warehouse"] for l in lines}
+        order = {
+            "id": str(next_id),
+            "order_number": f"RST-{year}-{restock_count + 1:04d}",
+            "customer": "Internal Restock",
+            "items": lines,
+            "status": "Submitted",
+            "order_date": now.isoformat(),
+            "expected_delivery": (now + timedelta(days=lead_days)).isoformat(),
+            "total_value": total,
+            "warehouse": warehouses.pop() if len(warehouses) == 1 else "Multiple",
+            "category": categories.pop() if len(categories) == 1 else "Multiple",
+            "order_type": "restock",
+            "lead_time_days": lead_days,
+        }
+        # Write the file first, then update memory, so a failed write leaves no phantom order
+        _save_orders_file(orders + [order])
+        orders.append(order)
+    return order
 
 if __name__ == "__main__":
     import uvicorn

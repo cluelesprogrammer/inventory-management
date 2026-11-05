@@ -29,6 +29,37 @@
 
       <div class="card">
         <div class="card-header">
+          <h3 class="card-title">{{ t('orders.submittedOrders') }} ({{ restockOrders.length }})</h3>
+        </div>
+        <div v-if="restockOrders.length === 0" class="empty-state">{{ t('orders.noSubmittedOrders') }}</div>
+        <div v-else class="table-container">
+          <table class="orders-table submitted-table">
+            <thead>
+              <tr>
+                <th class="col-order-number">{{ t('orders.table.orderNumber') }}</th>
+                <th class="col-items">{{ t('orders.table.items') }}</th>
+                <th class="col-date">{{ t('orders.table.orderDate') }}</th>
+                <th class="col-date">{{ t('orders.table.expectedDelivery') }}</th>
+                <th class="col-lead">{{ t('orders.leadTime') }}</th>
+                <th class="col-value">{{ t('orders.table.totalValue') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="order in restockOrders" :key="order.id">
+                <td class="col-order-number"><strong>{{ order.order_number }}</strong></td>
+                <td class="col-items">{{ t('orders.itemsCount', { count: order.items.length }) }}</td>
+                <td class="col-date">{{ formatDate(order.order_date) }}</td>
+                <td class="col-date">{{ formatDate(order.expected_delivery) }}</td>
+                <td class="col-lead">{{ t('orders.leadTimeDays', { count: order.lead_time_days }) }}</td>
+                <td class="col-value"><strong>{{ currencySymbol }}{{ order.total_value.toLocaleString() }}</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
           <h3 class="card-title">{{ t('orders.allOrders') }} ({{ orders.length }})</h3>
         </div>
         <div class="table-container">
@@ -94,7 +125,13 @@ export default {
     })
     const loading = ref(true)
     const error = ref(null)
-    const orders = ref([])
+    const fetchedOrders = ref([])
+
+    // Restock orders (order_type === 'restock') are shown in "Submitted Orders";
+    // everything else (no order_type) stays in "All Orders" so nothing is listed twice.
+    // Status stat cards are derived from `orders`, i.e. normal orders only.
+    const restockOrders = computed(() => fetchedOrders.value.filter(order => order.order_type === 'restock'))
+    const orders = computed(() => fetchedOrders.value.filter(order => order.order_type !== 'restock'))
 
     // Use shared filters
     const {
@@ -109,10 +146,10 @@ export default {
       try {
         loading.value = true
         const filters = getCurrentFilters()
-        const fetchedOrders = await api.getOrders(filters)
+        const result = await api.getOrders(filters)
 
         // Sort orders by order_date (earliest first)
-        orders.value = fetchedOrders.sort((a, b) => {
+        fetchedOrders.value = result.sort((a, b) => {
           const dateA = new Date(a.order_date)
           const dateB = new Date(b.order_date)
           return dateA - dateB
@@ -145,6 +182,8 @@ export default {
 
     const formatDate = (dateString) => {
       const { currentLocale } = useI18n()
+      // Guard against missing/invalid dates
+      if (!dateString || isNaN(new Date(dateString).getTime())) return '-'
       const locale = currentLocale.value === 'ja' ? 'ja-JP' : 'en-US'
       return new Date(dateString).toLocaleDateString(locale, {
         year: 'numeric',
@@ -160,6 +199,7 @@ export default {
       loading,
       error,
       orders,
+      restockOrders,
       getOrdersByStatus,
       getOrderStatusClass,
       formatDate,
@@ -201,6 +241,17 @@ export default {
 
 .col-value {
   width: 120px;
+}
+
+.col-lead {
+  width: 110px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: #64748b;
+  font-size: 0.938rem;
 }
 
 /* Items details styling */
