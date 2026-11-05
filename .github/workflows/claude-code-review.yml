@@ -1,0 +1,41 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+jobs:
+  claude-review:
+    # Skip draft PRs and PRs from forks (forks cannot access repository secrets)
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Claude Code Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Review this pull request. Focus on:
+            - Correctness and likely bugs
+            - Security issues (secrets, injection, unsafe input handling)
+            - Project conventions in CLAUDE.md (e.g. no emojis in UI, unique v-for keys,
+              Pydantic models updated when JSON data shape changes, comments on non-obvious logic)
+            - Test coverage for backend changes under tests/backend
+
+            Post your findings as inline review comments where possible, and a short summary
+            comment on the PR. Do not approve or request changes; leave that to humans.
+          claude_args: |
+            --allowedTools "Bash(git diff:*),Bash(git log:*),Bash(git show:*),Read,Grep,Glob"
